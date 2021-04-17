@@ -1,6 +1,7 @@
 ﻿using Azure.Messaging.EventHubs;
 using Azure.Messaging.EventHubs.Producer;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
 using System;
 using System.Text;
 using System.Text.Json;
@@ -12,32 +13,40 @@ namespace EventHubConnection.Api.Controllers
     [Route("[controller]")]
     public class EventHubController : ControllerBase
     {
-        [HttpGet]
-        public async Task<IActionResult> Get()
+        private readonly IConfiguration _configuration;
+
+        public EventHubController(IConfiguration configuration)
         {
-            const string eventHubConnectionString = "<your event hub connection string>";
-            const string eventHubName = "<your event hub name>";
+            _configuration = configuration;
+        }
 
-            await using (var producerClient = new EventHubProducerClient(eventHubConnectionString, eventHubName))
+        [HttpPost]
+        public async Task<IActionResult> SendEvent()
+        {
+            var eventHubConnectionString = _configuration.GetValue<string>("EventHub:Connection");
+            var eventHubName = _configuration.GetValue<string>("EventHub:ProductHubName");
+
+            var producerClient = new EventHubProducerClient(eventHubConnectionString, eventHubName, new EventHubProducerClientOptions
             {
-                // Create a batch of events 
-                using EventDataBatch eventBatch = await producerClient.CreateBatchAsync();
-
-                var obj = new
+                RetryOptions = new EventHubsRetryOptions
                 {
-                    Product = "Chocolate",
-                    Price = 10
-                };
+                    MaximumRetries = 5,
+                    Delay = TimeSpan.FromSeconds(2)
+                }
+            });
 
-                // Add events to the batch. An event is a represented by a collection of bytes and metadata. 
-                eventBatch.TryAdd(new EventData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(obj))));
+            var eventBatch = await producerClient.CreateBatchAsync();
 
-                // Use the producer client to send the batch of events to the event hub
-                await producerClient.SendAsync(eventBatch);
-                Console.WriteLine("A batch of 3 events has been published.");
-            }
+            var obj = new
+            {
+                Product = "Chocolate",
+                Price = 10
+            };
 
-            return Ok();
+            eventBatch.TryAdd(new EventData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(obj))));
+            await producerClient.SendAsync(eventBatch);
+
+            return Ok("The event has been published.");
         }
     }
 }

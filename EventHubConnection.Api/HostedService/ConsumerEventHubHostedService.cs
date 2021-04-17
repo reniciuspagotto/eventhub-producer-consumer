@@ -2,6 +2,8 @@
 using Azure.Messaging.EventHubs.Consumer;
 using Azure.Messaging.EventHubs.Processor;
 using Azure.Storage.Blobs;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using System;
 using System.Text.Json;
@@ -12,20 +14,28 @@ namespace EventHubConnection.Api.HostedService
 {
     public class ConsumerEventHubHostedService : BackgroundService
     {
-        private const string ehubNamespaceConnectionString = "<your event hub connection string>";
-        private const string eventHubName = "<your event hub name>";
-        private const string blobStorageConnectionString = "<your blob connection string>";
-        private const string blobContainerName = "<your blob container name>";
+        private readonly IConfiguration _configuration;
+
+        public ConsumerEventHubHostedService(IServiceScopeFactory serviceScopeFactory)
+        {
+            _configuration = serviceScopeFactory.CreateScope().ServiceProvider.GetService<IConfiguration>();
+        }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+            var eventHubConnectionString = _configuration.GetValue<string>("EventHub:Connection");
+            var productHubName = _configuration.GetValue<string>("EventHub:ProductHubName");
+
+            var blobStorageConnectionString = _configuration.GetValue<string>("BlobStorageEventHub:Connection");
+            var productContainer = _configuration.GetValue<string>("BlobStorageEventHub:ProductContainer");
+
             string consumerGroup = EventHubConsumerClient.DefaultConsumerGroupName;
 
             // Create a blob container client that the event processor will use 
-            BlobContainerClient storageClient = new BlobContainerClient(blobStorageConnectionString, blobContainerName);
+            BlobContainerClient storageClient = new BlobContainerClient(blobStorageConnectionString, productContainer);
 
             // Create an event processor client to process events in the event hub
-            EventProcessorClient processor = new EventProcessorClient(storageClient, consumerGroup, ehubNamespaceConnectionString, eventHubName);
+            EventProcessorClient processor = new EventProcessorClient(storageClient, consumerGroup, eventHubConnectionString, productHubName);
 
             // Register handlers for processing events and handling errors
             processor.ProcessEventAsync += ProcessEventHandler;
@@ -37,13 +47,10 @@ namespace EventHubConnection.Api.HostedService
 
         public static async Task ProcessEventHandler(ProcessEventArgs eventArgs)
         {
-            // Write the body of the event to the console window
             Console.WriteLine("\tReceived event: {0}", JsonSerializer.Deserialize<object>(eventArgs.Data.Body.ToArray()));
 
-            throw new Exception();
-
             // Update checkpoint in the blob storage so that the app receives only new events the next time it's run
-            //await eventArgs.UpdateCheckpointAsync(eventArgs.CancellationToken);
+            await eventArgs.UpdateCheckpointAsync(eventArgs.CancellationToken);
         }
 
         public static Task ProcessErrorHandler(ProcessErrorEventArgs eventArgs)
