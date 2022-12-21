@@ -39,14 +39,15 @@ namespace EventHubConnection.Api.Controllers
 
             var obj = new
             {
-                Product = "Chocolate",
-                Price = 10
+                Name = "Renicius Pagotto",
+                Email = "test@test.com",
+                Age = 30
             };
 
             eventBatch.TryAdd(new EventData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(obj))));
             await producerClient.SendAsync(eventBatch);
 
-            return Ok("The event has been published.");
+            return Ok($"The event has been published on {DateTime.Now}");
         }
     }
 }
